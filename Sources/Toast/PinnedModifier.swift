@@ -7,67 +7,38 @@
 
 import SwiftUI
 
-struct PinnedModifier: ViewModifier {
-    enum Edge: CaseIterable {
-        case leadingTop
-        case leading
-        case leadingBottom
-        case top
-        case trailingTop
-        case trailing
-        case trailingBottom
-        case bottom
-    }
-    
-    private var edge: Edge
+private struct PinnedModifier: ViewModifier {
+    var edges: Edge.Set
 
-    fileprivate init(edge: PinnedModifier.Edge) {
-        self.edge = edge
-    }
-    
     func body(content: Content) -> some View {
-        VStack {
-            if edge == .leading
-                || edge == .trailing
-                || edge == .leadingBottom
-                || edge == .trailingBottom
-                || edge == .bottom
-            {
-                Spacer()
-            }
-            HStack {
-                if edge == .trailing
-                    || edge == .trailingTop
-                    || edge == .trailingBottom
-                    || edge == .top
-                    || edge == .bottom
-                {
+        if edges.isEmpty
+            || (edges.contains(.trailing) && edges.contains(.leading))
+            || (edges.contains(.top) && edges.contains(.bottom)) {
+            content
+        } else {
+            VStack {
+                if !edges.contains(.top) {
                     Spacer()
                 }
-                content
-                if edge == .leading
-                    || edge == .leadingTop
-                    || edge == .leadingBottom
-                    || edge == .top
-                    || edge == .bottom
-                {
+                HStack {
+                    if !edges.contains(.leading) {
+                        Spacer()
+                    }
+                    content
+                    if !edges.contains(.trailing) {
+                        Spacer()
+                    }
+                }
+                if !edges.contains(.bottom) {
                     Spacer()
                 }
-            }
-            if edge == .leading
-                || edge == .trailing
-                || edge == .leadingTop
-                || edge == .trailingTop
-                || edge == .top
-            {
-                Spacer()
             }
         }
     }
 }
 
 extension View {
-    func pinned(to edge: PinnedModifier.Edge) -> some View {
-        modifier(PinnedModifier(edge: edge))
+    func pinned(to edges: Edge.Set) -> some View {
+        modifier(PinnedModifier(edges: edges))
     }
 }

@@ -13,7 +13,7 @@ let package = Package(
     products: [
         .library(
             name: "Toast",
-            targets: ["Toast"]),
+            targets: ["Toast"])
     ],
     dependencies: [],
     targets: [

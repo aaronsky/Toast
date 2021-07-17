@@ -10,28 +10,16 @@ import SwiftUI
 private let maxDragOffset: CGFloat = -100
 private let minDragOffset: CGFloat = 50
 
-private struct ToastModifier<Toast: View>: ViewModifier {
+private struct ToastModifier<V: View>: ViewModifier {
     @State private var timer: Timer?
     @GestureState private var dragOffset: CGFloat = 0
-    
-    @Binding private var isPresented: Bool
-    @Binding private var shouldResetTimer: Bool
-    
-    private var duration: TimeInterval
-    private var toast: () -> Toast
-    
-    init(
-        isPresented: Binding<Bool>,
-        duration: TimeInterval,
-        shouldResetTimer: Binding<Bool> = .constant(false),
-        @ViewBuilder toast: @escaping () -> Toast
-    ) {
-        _isPresented = isPresented
-        _shouldResetTimer = shouldResetTimer
-        self.duration = duration
-        self.toast = toast
-    }
-    
+
+    @Binding var isPresented: Bool
+    @Binding var edges: Edge.Set
+    @Binding var shouldResetTimer: Bool
+    var duration: TimeInterval
+    var toast: () -> V
+
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 1)
             .updating($dragOffset) { value, state, _ in
@@ -42,19 +30,19 @@ private struct ToastModifier<Toast: View>: ViewModifier {
                 if value.translation.height > minDragOffset {
                     return dismiss()
                 }
-                
+
                 resetTimer()
             }
     }
-    
+
     func body(content: Content) -> some View {
         ZStack {
             content
                 .zIndex(1)
-            
+
             if isPresented {
                 toast()
-                    .pinned(to: .bottom)
+                    .pinned(to: edges)
                     .offset(y: dragOffset)
                     .animation(.interactiveSpring(), value: dragOffset)
                     .transition(.opacity.animation(.easeOut))
@@ -67,25 +55,25 @@ private struct ToastModifier<Toast: View>: ViewModifier {
             }
         }
     }
-    
+
     private func onAppear() {
         resetTimer()
     }
-    
+
     private func onDisappear() {
         timer?.invalidate()
     }
-    
+
     private func resetTimer(force: Bool = false) {
         timer?.invalidate()
-        
+
         timer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { _ in
             dismiss()
         }
-        
+
         shouldResetTimer = false
     }
-    
+
     private func dismiss() {
         withAnimation(.easeOut) {
             isPresented = false
@@ -93,19 +81,14 @@ private struct ToastModifier<Toast: View>: ViewModifier {
     }
 }
 
-private struct ToastWithItemModifier<Toast: View, Item: Identifiable>: ViewModifier {
+private struct ToastWithItemModifier<V: View, Item: Identifiable>: ViewModifier {
     @State private var shouldResetTimer = false
-    @Binding private var item: Item?
-    
-    private var duration: TimeInterval
-    private var toast: (Item) -> Toast
-    
-    init(item: Binding<Item?>, duration: TimeInterval, toast: @escaping (Item) -> Toast) {
-        _item = item
-        self.duration = duration
-        self.toast = toast
-    }
-    
+
+    @Binding var item: Item?
+    @Binding var edges: Edge.Set
+    var duration: TimeInterval
+    var toast: (Item) -> V
+
     func body(content: Content) -> some View {
         let isPresented = Binding(get: {
             item != nil
@@ -114,37 +97,76 @@ private struct ToastWithItemModifier<Toast: View, Item: Identifiable>: ViewModif
                 item = nil
             }
         })
-        
+
         return content
             .onChange(of: item?.id, perform: itemHasChanged)
-            .modifier(ToastModifier(isPresented: isPresented, duration: duration, shouldResetTimer: $shouldResetTimer, toast: toastWithItem))
+            .modifier(
+                ToastModifier(isPresented: isPresented,
+                              edges: $edges,
+                              shouldResetTimer: $shouldResetTimer,
+                              duration: duration,
+                              toast: toastWithItem)
+            )
     }
-    
+
     private func itemHasChanged(_ item: Item.ID?) {
         shouldResetTimer = true
     }
-    
-    private func toastWithItem() -> Toast {
+
+    private func toastWithItem() -> V {
         guard let item = item else {
             preconditionFailure("toastWithItem should not be called unless isPresented returns true, otherwise item will be nil")
         }
-        
+
         return toast(item)
     }
 }
 
-extension View {
-    /// Presents a toast-style view on top of the content.
-    public func toast<Toast: View, Item: Identifiable>(item: Binding<Item?>, duration: TimeInterval = 2.0, @ViewBuilder toast: @escaping (Item) -> Toast) -> some View {
-        modifier(ToastWithItemModifier(item: item, duration: duration, toast: toast))
+public extension View {
+    /// Presents an ephemeral toast to the user.
+    ///
+    /// - Parameter item: A binding to an optional source of truth for the toast. If the item is non-`nil`, the system passes the contents to the modifier's closure. You use this content to populate the fields of a toast you create that the system displays on top of the rest of the layout. If `item` changes, the expiry duration is reset and the toast is updated inline. Once the toast expires, this binding is set back to `nil`.
+    /// - Parameter duration: The length of time in seconds that the toast should stay on screen.
+    /// - Parameter edges: The edge of the screen that the toast should be pinned to. If multiple edges on an axis are passed, the set will be ignored and the toast will be centered in frame.
+    /// - Parameter toast: A closure returning the view to present as a toast.
+    func toast<Content: View, Item: Identifiable>(
+        item: Binding<Item?>,
+        duration: TimeInterval = 2.0,
+        edges: Binding<Edge.Set> = .constant(.bottom),
+        @ViewBuilder toast: @escaping (Item) -> Content
+    ) -> some View {
+        modifier(
+            ToastWithItemModifier(item: item,
+                                  edges: edges,
+                                  duration: duration,
+                                  toast: toast)
+        )
     }
-    
-    /// Presents a toast-style view on top of the content.
-    public func toast<Toast: View>(isPresented: Binding<Bool>, duration: TimeInterval = 2.0, @ViewBuilder toast: @escaping () -> Toast) -> some View {
-        modifier(ToastModifier(isPresented: isPresented, duration: duration, toast: toast))
+
+    /// Presents an ephemeral toast to the user.
+    ///
+    /// - Parameter isPresented: A binding to a Boolean value that determines whether to present the toast that you create in the modifier’s content closure. When the user taps or drags the toast off screen, or if the expiry duration is exceeded, `isPresented` is set back to `false` which dismisses the toast.
+    /// - Parameter duration: The length of time in seconds that the toast should stay on screen.
+    /// - Parameter edges: The edge of the screen that the toast should be pinned to. If multiple edges on an axis are passed, the set will be ignored and the toast will be centered in frame.
+    /// - Parameter toast: A closure returning the view to present as a toast.
+    func toast<Content: View>(
+        isPresented: Binding<Bool>,
+        duration: TimeInterval = 2.0,
+        edges: Binding<Edge.Set> = .constant(.bottom),
+        @ViewBuilder toast: @escaping () -> Content
+    ) -> some View {
+        modifier(
+            ToastModifier(isPresented: isPresented,
+                          edges: edges,
+                          shouldResetTimer: .constant(false),
+                          duration: duration,
+                          toast: toast)
+        )
     }
-    
-    fileprivate func onChange<V: Equatable>(of value: V, equaling expectedValue: V, perform action: @escaping (V) -> Void) -> some View {
+}
+
+private extension View {
+    func onChange<Value: Equatable>(of value: Value, equaling expectedValue: Value, perform action: @escaping (Value) -> Void) -> some View {
         onChange(of: value) { newValue in
             guard newValue == expectedValue else {
                 return
